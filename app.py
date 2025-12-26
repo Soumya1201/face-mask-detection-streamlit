@@ -2,67 +2,69 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 import cv2
-import os
 from PIL import Image
+import os
 
-# -------------------------------------------------
-# Detect cloud vs local deployment
-# -------------------------------------------------
-IS_CLOUD = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false") == "true"
-
-# -------------------------------------------------
-# Page configuration
-# -------------------------------------------------
+# --------------------------------------------------
+# Page config
+# --------------------------------------------------
 st.set_page_config(
-    page_title="Face Mask Detection with Explainability",
+    page_title="Face Mask Detection with Grad-CAM",
     layout="centered"
 )
 
-st.title("Face Mask Detection with Explainability")
-st.write("Image upload, webcam snapshot, and live video face mask detection.")
+st.title("Face Mask Detection with Explainability (Grad-CAM)")
 
-# -------------------------------------------------
-# Load trained model
-# -------------------------------------------------
+# --------------------------------------------------
+# Detect Streamlit Cloud
+# --------------------------------------------------
+IS_CLOUD = os.environ.get("STREAMLIT_SERVER_HEADLESS", "false") == "true"
+
+# --------------------------------------------------
+# Load model
+# --------------------------------------------------
 @st.cache_resource
 def load_model():
     return tf.keras.models.load_model("face_mask_mobilenetv2.keras")
 
 model = load_model()
 
-# -------------------------------------------------
-# Preprocessing
-# -------------------------------------------------
+# --------------------------------------------------
+# Image preprocessing
+# --------------------------------------------------
 def preprocess_image(image_bgr):
     image = cv2.resize(image_bgr, (128, 128))
     image = image / 255.0
     image = np.expand_dims(image, axis=0)
     return image
 
-# -------------------------------------------------
-# CORRECT GRAD-CAM (LOGITS-BASED, CLOUD-SAFE)
-# -------------------------------------------------
-def make_gradcam_heatmap(img_array, model, last_conv_layer_name, class_index):
+# --------------------------------------------------
+# CORRECT Grad-CAM for YOUR MobileNetV2
+# --------------------------------------------------
+def make_gradcam_heatmap(img_array, model, class_index):
+    """
+    Grad-CAM using the correct layer: out_relu
+    """
 
-    last_conv_layer = model.get_layer(last_conv_layer_name)
+    last_conv_layer = model.get_layer("out_relu")
 
-    # Build model: input → (conv features, logits)
     grad_model = tf.keras.models.Model(
         inputs=model.input,
-        outputs=[
-            last_conv_layer.output,
-            model.layers[-1].input  # logits (pre-softmax)
-        ]
+        outputs=[last_conv_layer.output, model.output]
     )
 
     with tf.GradientTape() as tape:
-        conv_outputs, logits = grad_model(img_array)
-        class_logit = logits[:, class_index]
+        conv_outputs, predictions = grad_model(img_array)
+        class_score = predictions[:, class_index]
 
-    grads = tape.gradient(class_logit, conv_outputs)
+    grads = tape.gradient(class_score, conv_outputs)
+
+    if grads is None:
+        return None
+
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-
     conv_outputs = conv_outputs[0]
+
     heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
 
     heatmap = tf.maximum(heatmap, 0)
@@ -74,11 +76,10 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, class_index):
     heatmap /= max_val
     return heatmap.numpy()
 
-# -------------------------------------------------
-# Grad-CAM numerical metrics
-# -------------------------------------------------
+# --------------------------------------------------
+# Grad-CAM metrics
+# --------------------------------------------------
 def gradcam_metrics(heatmap):
-
     total = np.sum(heatmap)
     if total == 0:
         raise ValueError("Empty heatmap")
@@ -96,32 +97,29 @@ def gradcam_metrics(heatmap):
         "Blue Region Contribution (Low Evidence)": np.sum(heatmap < 0.33) / heatmap.size,
     }
 
-# -------------------------------------------------
+# --------------------------------------------------
 # Overlay Grad-CAM
-# -------------------------------------------------
+# --------------------------------------------------
 def overlay_gradcam(image_bgr, heatmap, alpha=0.4):
     heatmap = cv2.resize(heatmap, (image_bgr.shape[1], image_bgr.shape[0]))
     heatmap = np.uint8(255 * heatmap)
     heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
     return cv2.addWeighted(image_bgr, 1 - alpha, heatmap, alpha, 0)
 
-# -------------------------------------------------
-# App configuration
-# -------------------------------------------------
+# --------------------------------------------------
+# App settings
+# --------------------------------------------------
 THRESHOLD = 0.7
-
-# Best layer for MobileNetV2 Grad-CAM
-LAST_CONV_LAYER = "block_13_expand_relu"
 
 if IS_CLOUD:
     mode = st.radio("Select Input Mode", ("Upload Image", "Webcam Snapshot"))
-    st.info("Live video mode is available only in local deployment.")
+    st.info("Live video is disabled on Streamlit Cloud.")
 else:
     mode = st.radio("Select Input Mode", ("Upload Image", "Webcam Snapshot", "Live Video"))
 
-# =================================================
-# IMAGE UPLOAD MODE
-# =================================================
+# ==================================================
+# IMAGE UPLOAD
+# ==================================================
 if mode == "Upload Image":
 
     uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
@@ -147,21 +145,20 @@ if mode == "Upload Image":
             class_index = 0
 
         try:
-            heatmap = make_gradcam_heatmap(
-                processed, model, LAST_CONV_LAYER, class_index
-            )
+            heatmap = make_gradcam_heatmap(processed, model, class_index)
 
             if heatmap is None:
                 raise ValueError("Grad-CAM failed")
 
-            metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
             cam_image = cv2.cvtColor(cam_image, cv2.COLOR_BGR2RGB)
+
+            metrics = gradcam_metrics(heatmap)
 
             st.subheader("Grad-CAM Visualization")
             st.image(cam_image, use_container_width=True)
 
-            st.subheader("Numerical Explanation (Grad-CAM Metrics)")
+            st.subheader("Numerical Explanation")
             st.table({
                 "Metric": list(metrics.keys()),
                 "Value": [
@@ -173,12 +170,12 @@ if mode == "Upload Image":
         except Exception:
             st.warning(
                 "Grad-CAM explanation could not be generated for this image. "
-                "The prediction remains valid."
+                "The prediction itself remains valid."
             )
 
-# =================================================
-# WEBCAM SNAPSHOT MODE
-# =================================================
+# ==================================================
+# WEBCAM SNAPSHOT
+# ==================================================
 elif mode == "Webcam Snapshot":
 
     webcam_image = st.camera_input("Capture image")
@@ -204,21 +201,20 @@ elif mode == "Webcam Snapshot":
             class_index = 0
 
         try:
-            heatmap = make_gradcam_heatmap(
-                processed, model, LAST_CONV_LAYER, class_index
-            )
+            heatmap = make_gradcam_heatmap(processed, model, class_index)
 
             if heatmap is None:
                 raise ValueError("Grad-CAM failed")
 
-            metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
             cam_image = cv2.cvtColor(cam_image, cv2.COLOR_BGR2RGB)
+
+            metrics = gradcam_metrics(heatmap)
 
             st.subheader("Grad-CAM Visualization")
             st.image(cam_image, use_container_width=True)
 
-            st.subheader("Numerical Explanation (Grad-CAM Metrics)")
+            st.subheader("Numerical Explanation")
             st.table({
                 "Metric": list(metrics.keys()),
                 "Value": [
@@ -230,17 +226,16 @@ elif mode == "Webcam Snapshot":
         except Exception:
             st.warning(
                 "Grad-CAM explanation could not be generated for this image. "
-                "The prediction remains valid."
+                "The prediction itself remains valid."
             )
 
-# =================================================
-# LIVE VIDEO MODE (LOCAL ONLY)
-# =================================================
+# ==================================================
+# LIVE VIDEO (LOCAL ONLY)
+# ==================================================
 elif mode == "Live Video":
 
     start = st.button("Start Camera")
     stop = st.button("Stop Camera")
-
     frame_window = st.empty()
 
     if start:
