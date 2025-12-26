@@ -39,12 +39,9 @@ def preprocess_image(image_bgr):
     return image
 
 # --------------------------------------------------
-# CORRECT Grad-CAM for YOUR MobileNetV2
+# Grad-CAM (CORRECT for YOUR MobileNetV2)
 # --------------------------------------------------
 def make_gradcam_heatmap(img_array, model, class_index):
-    """
-    Grad-CAM using the correct layer: out_relu
-    """
 
     last_conv_layer = model.get_layer("out_relu")
 
@@ -66,10 +63,9 @@ def make_gradcam_heatmap(img_array, model, class_index):
     conv_outputs = conv_outputs[0]
 
     heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
-
     heatmap = tf.maximum(heatmap, 0)
-    max_val = tf.reduce_max(heatmap)
 
+    max_val = tf.reduce_max(heatmap)
     if max_val < 1e-6:
         return None
 
@@ -126,7 +122,7 @@ if mode == "Upload Image":
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, use_container_width=True)
+        st.image(image, width="stretch")
 
         image_np = np.array(image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -156,7 +152,7 @@ if mode == "Upload Image":
             metrics = gradcam_metrics(heatmap)
 
             st.subheader("Grad-CAM Visualization")
-            st.image(cam_image, use_container_width=True)
+            st.image(cam_image, width="stretch")
 
             st.subheader("Numerical Explanation")
             st.table({
@@ -182,7 +178,7 @@ elif mode == "Webcam Snapshot":
 
     if webcam_image is not None:
         image = Image.open(webcam_image).convert("RGB")
-        st.image(image, use_container_width=True)
+        st.image(image, width="stretch")
 
         image_np = np.array(image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -212,7 +208,7 @@ elif mode == "Webcam Snapshot":
             metrics = gradcam_metrics(heatmap)
 
             st.subheader("Grad-CAM Visualization")
-            st.image(cam_image, use_container_width=True)
+            st.image(cam_image, width="stretch")
 
             st.subheader("Numerical Explanation")
             st.table({
@@ -266,6 +262,6 @@ elif mode == "Live Video":
                         cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_window.image(frame, use_container_width=True)
+            frame_window.image(frame, width="stretch")
 
         cap.release()
