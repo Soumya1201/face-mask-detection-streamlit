@@ -63,8 +63,13 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, class_index):
     heatmap = tf.reduce_sum(conv_output * pooled_grads, axis=-1)
 
     heatmap = tf.maximum(heatmap, 0)
-    heatmap /= tf.reduce_max(heatmap) + 1e-8
 
+    # Avoid division by zero
+    max_val = tf.reduce_max(heatmap)
+    if max_val == 0:
+        return None
+
+    heatmap /= max_val
     return heatmap.numpy()
 
 # -------------------------------------------------
@@ -72,17 +77,20 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, class_index):
 # -------------------------------------------------
 def gradcam_metrics(heatmap):
 
+    total = np.sum(heatmap)
+    if total == 0:
+        raise ValueError("Empty heatmap")
+
     mean_activation = np.mean(heatmap)
     max_activation = np.max(heatmap)
-
     high_activation_ratio = np.sum(heatmap > 0.6) / heatmap.size
 
     h = heatmap.shape[0]
     upper_face = heatmap[:h // 2, :]
     lower_face = heatmap[h // 2:, :]
 
-    upper_contribution = np.sum(upper_face) / np.sum(heatmap)
-    lower_contribution = np.sum(lower_face) / np.sum(heatmap)
+    upper_contribution = np.sum(upper_face) / total
+    lower_contribution = np.sum(lower_face) / total
 
     red_ratio = np.sum(heatmap >= 0.66) / heatmap.size
     yellow_ratio = np.sum((heatmap >= 0.33) & (heatmap < 0.66)) / heatmap.size
@@ -112,33 +120,26 @@ def overlay_gradcam(image_bgr, heatmap, alpha=0.4):
 # App configuration
 # -------------------------------------------------
 THRESHOLD = 0.7
-LAST_CONV_LAYER = "Conv_1"
+
+# IMPORTANT FIX: better MobileNetV2 layer
+LAST_CONV_LAYER = "block_13_expand_relu"
 
 if IS_CLOUD:
-    mode = st.radio(
-        "Select Input Mode",
-        ("Upload Image", "Webcam Snapshot")
-    )
+    mode = st.radio("Select Input Mode", ("Upload Image", "Webcam Snapshot"))
     st.info("Live video mode is available only in local deployment.")
 else:
-    mode = st.radio(
-        "Select Input Mode",
-        ("Upload Image", "Webcam Snapshot", "Live Video")
-    )
+    mode = st.radio("Select Input Mode", ("Upload Image", "Webcam Snapshot", "Live Video"))
 
 # =================================================
-# IMAGE UPLOAD MODE (WITH SAFE GRAD-CAM)
+# IMAGE UPLOAD MODE
 # =================================================
 if mode == "Upload Image":
 
-    uploaded_file = st.file_uploader(
-        "Upload an image",
-        type=["jpg", "jpeg", "png"]
-    )
+    uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Input Image", use_container_width=True)
+        st.image(image, use_container_width=True)
 
         image_np = np.array(image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -156,14 +157,16 @@ if mode == "Upload Image":
             st.error(f"Prediction: Without Mask (Confidence: {no_mask_prob:.4f})")
             class_index = 0
 
-        # -------- SAFE GRAD-CAM BLOCK --------
+        # ---------- SAFE GRAD-CAM ----------
         try:
             heatmap = make_gradcam_heatmap(
                 processed, model, LAST_CONV_LAYER, class_index
             )
 
-            metrics = gradcam_metrics(heatmap)
+            if heatmap is None:
+                raise ValueError("Grad-CAM heatmap is empty")
 
+            metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
             cam_image = cv2.cvtColor(cam_image, cv2.COLOR_BGR2RGB)
 
@@ -181,12 +184,12 @@ if mode == "Upload Image":
 
         except Exception:
             st.warning(
-                "Grad-CAM explanation is unavailable for this prediction. "
-                "The classification result remains valid."
+                "Grad-CAM explanation is unavailable for this prediction due to "
+                "gradient saturation. The prediction itself remains valid."
             )
 
 # =================================================
-# WEBCAM SNAPSHOT MODE (WITH SAFE GRAD-CAM)
+# WEBCAM SNAPSHOT MODE
 # =================================================
 elif mode == "Webcam Snapshot":
 
@@ -194,7 +197,7 @@ elif mode == "Webcam Snapshot":
 
     if webcam_image is not None:
         image = Image.open(webcam_image).convert("RGB")
-        st.image(image, caption="Webcam Image", use_container_width=True)
+        st.image(image, use_container_width=True)
 
         image_np = np.array(image)
         image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
@@ -212,14 +215,15 @@ elif mode == "Webcam Snapshot":
             st.error(f"Prediction: Without Mask (Confidence: {no_mask_prob:.4f})")
             class_index = 0
 
-        # -------- SAFE GRAD-CAM BLOCK --------
         try:
             heatmap = make_gradcam_heatmap(
                 processed, model, LAST_CONV_LAYER, class_index
             )
 
-            metrics = gradcam_metrics(heatmap)
+            if heatmap is None:
+                raise ValueError("Grad-CAM heatmap is empty")
 
+            metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
             cam_image = cv2.cvtColor(cam_image, cv2.COLOR_BGR2RGB)
 
@@ -237,12 +241,12 @@ elif mode == "Webcam Snapshot":
 
         except Exception:
             st.warning(
-                "Grad-CAM explanation is unavailable for this prediction. "
-                "The classification result remains valid."
+                "Grad-CAM explanation is unavailable for this prediction due to "
+                "gradient saturation. The prediction itself remains valid."
             )
 
 # =================================================
-# LIVE VIDEO MODE (LOCAL ONLY, NO GRAD-CAM)
+# LIVE VIDEO MODE (LOCAL ONLY)
 # =================================================
 elif mode == "Live Video":
 
@@ -276,13 +280,8 @@ elif mode == "Live Video":
                 color = (0, 0, 255)
 
             cv2.putText(
-                frame,
-                label,
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                color,
-                2
+                frame, label, (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2
             )
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
