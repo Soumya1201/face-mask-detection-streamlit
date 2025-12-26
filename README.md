@@ -1,117 +1,135 @@
-Face Mask Detection System
+# Face Mask Detection System
 
-A deep learning–based Face Mask Detection System that classifies whether a person is wearing a mask or not using a Convolutional Neural Network (CNN). The application is deployed using Streamlit and supports image upload and webcam snapshot inputs.
+This project implements a deep learning–based Face Mask Detection System that classifies whether a person is wearing a face mask or not. The system is built using a Convolutional Neural Network (CNN) with transfer learning and is deployed as a web application using Streamlit.
 
-Deployed Application
+---
 
-🔗 Live App:
+## Deployed Application
+
+The application is publicly accessible at the following link:
+
 https://face-mask-detection-app-xyz.streamlit.app/
 
-Dataset
+---
 
-The model is trained on a publicly available Kaggle dataset:
+## Dataset
 
-🔗 Dataset Link:
+The model is trained using a publicly available dataset from Kaggle.
+
+Dataset link:  
 https://www.kaggle.com/datasets/omkargurav/face-mask-dataset/data
 
-Dataset Details
+### Dataset Description
 
-Two classes:
+- Two classes:
+  - with_mask
+  - without_mask
+- Total images: approximately 7,500
+- Nearly balanced distribution between the two classes
+- Images include variations in lighting, pose, and background
 
-  with_mask
-  
-  without_mask
+---
 
-Total images: ~7,500+
+## Model Overview
 
-Balanced dataset (nearly equal samples per class)
+- Base architecture: MobileNetV2 (transfer learning)
+- Input image size: 128 × 128 × 3
+- Model architecture:
+  - Pre-trained MobileNetV2 feature extractor
+  - Global Average Pooling layer
+  - Fully connected dense layer
+  - Dropout layer for regularization
+  - Softmax output layer with two classes
+- Optimizer: Adam
+- Loss function: Sparse Categorical Crossentropy
 
-Model Overview
+The model outputs probabilistic confidence scores for both classes.
 
-Base Model: MobileNetV2 (transfer learning)
+---
 
-Input Size: 128 × 128 × 3
+## Features
 
-Classifier Head:
+- Image upload–based face mask detection
+- Webcam snapshot–based prediction
+- Displays prediction label along with confidence score
+- Clean and responsive web interface
+- Cloud-deployed and accessible via browser
 
-Global Average Pooling
+---
 
-Fully Connected (Dense) layers
+## Technology Stack
 
-Softmax output (2 classes)
+- Programming Language: Python
+- Deep Learning Framework: TensorFlow / Keras
+- Web Framework: Streamlit
+- Computer Vision: OpenCV
+- Image Processing: Pillow (PIL)
+- Numerical Computation: NumPy
 
-Optimizer: Adam
+---
 
-Loss Function: Sparse Categorical Crossentropy
+## Project Structure
 
-Features
-
-Upload an image and get mask detection result
-
-Capture image using webcam (snapshot)
-
-Displays confidence scores for both classes
-
-Clean and responsive UI using Streamlit
-
-Cloud-deployed and accessible via browser
-
-Tech Stack
-
-Programming Language: Python
-
-Deep Learning: TensorFlow / Keras
-
-Computer Vision: OpenCV
-
-Web Framework: Streamlit
-
-Image Processing: PIL, NumPy
-
-Project Structure
 face-mask-detection-streamlit/
 │
-├── app.py                         # Streamlit application
-├── face_mask_mobilenetv2.keras    # Trained model
-├── README.md                      # Project documentation
-├── requirements.txt               # Python dependencies
+├── app.py Streamlit application
+├── face_mask_mobilenetv2.keras Trained deep learning model
+├── README.md Project documentation
+├── requirements.txt Python dependencies
 
-How to Run Locally
-Clone the repository
 
+
+
+---
+
+## How to Run the Project Locally
+
+### Step 1: Clone the repository
+
+```bash
 git clone https://github.com/Soumya1201/face-mask-detection-streamlit.git
 cd face-mask-detection-streamlit
+```
 
-Create virtual environment (optional but recommended)
-
+Step 2: Create and activate a virtual environment (optional but recommended)
+```bash
 python -m venv venv
-source venv/bin/activate   # On Windows: venv\Scripts\activate
+```
 
-Install dependencies
+On Linux or macOS:
+```bash
+source venv/bin/activate
+```
 
+On Windows:
+```bash
+venv\Scripts\activate
+```
+Step 3: Install required dependencies
+```bash
 pip install -r requirements.txt
-
-Run the app
-
+```
+Step 4: Run the Streamlit application
+```bash
 streamlit run app.py
+```
 
- Deployment
+The application will open automatically in the default web browser.
 
-Deployed using Streamlit Cloud
+## Deployment
 
-Automatically redeploys on GitHub commits
+- The application is deployed using Streamlit Cloud. Any updates pushed to the GitHub repository automatically trigger redeployment.
 
-Live video and Grad-CAM were excluded to ensure cloud stability
+- Advanced features such as live video streaming and explainability modules were excluded from deployment to ensure stability and compatibility with cloud environments.
 
-Notes
+## Notes
 
-Webcam snapshot works on supported browsers
+- Webcam snapshot functionality depends on browser permissions
 
-Model predictions are probabilistic; confidence scores are shown
+- Model predictions are probabilistic and include confidence scores
 
-Designed for academic, demo, and learning purposes
+- The system is intended for academic, learning, and demonstration purposes
 
-Author
+## Author
 
 Soumyadip Adhikary
-Project – Face Mask Detection using Deep Learning
