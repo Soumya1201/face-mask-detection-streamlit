@@ -132,4 +132,4 @@ The application will open automatically in the default web browser.
 
 ## Author
 
-Soumyadip Adhikaryjjj
+Soumyadip Adhikary
