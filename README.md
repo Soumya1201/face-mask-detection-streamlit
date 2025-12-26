@@ -5,7 +5,7 @@ This project implements a deep learning–based Face Mask Detection System that 
 ---
 
 ## Deployed Application
-
+ 
 The application is publicly accessible at the following link:
 
 https://face-mask-detection-app-xyz.streamlit.app/
@@ -132,4 +132,4 @@ The application will open automatically in the default web browser.
 
 ## Author
 
-Soumyadip Adhikary
+Soumyadip Adhikaryjjj
