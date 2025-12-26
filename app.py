@@ -40,33 +40,35 @@ def preprocess_image(image_bgr):
     return image
 
 # -------------------------------------------------
-# Grad-CAM computation (cloud-safe)
+# CORRECT GRAD-CAM (LOGITS-BASED, CLOUD-SAFE)
 # -------------------------------------------------
 def make_gradcam_heatmap(img_array, model, last_conv_layer_name, class_index):
 
+    last_conv_layer = model.get_layer(last_conv_layer_name)
+
+    # Build model: input → (conv features, logits)
     grad_model = tf.keras.models.Model(
-        inputs=model.inputs,
+        inputs=model.input,
         outputs=[
-            model.get_layer(last_conv_layer_name).output,
-            model.output
+            last_conv_layer.output,
+            model.layers[-1].input  # logits (pre-softmax)
         ]
     )
 
     with tf.GradientTape() as tape:
-        conv_output, predictions = grad_model(img_array)
-        class_channel = tf.gather(predictions, class_index, axis=1)
+        conv_outputs, logits = grad_model(img_array)
+        class_logit = logits[:, class_index]
 
-    grads = tape.gradient(class_channel, conv_output)
+    grads = tape.gradient(class_logit, conv_outputs)
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
-    conv_output = conv_output[0]
-    heatmap = tf.reduce_sum(conv_output * pooled_grads, axis=-1)
+    conv_outputs = conv_outputs[0]
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
 
     heatmap = tf.maximum(heatmap, 0)
-
-    # Avoid division by zero
     max_val = tf.reduce_max(heatmap)
-    if max_val == 0:
+
+    if max_val < 1e-6:
         return None
 
     heatmap /= max_val
@@ -81,30 +83,17 @@ def gradcam_metrics(heatmap):
     if total == 0:
         raise ValueError("Empty heatmap")
 
-    mean_activation = np.mean(heatmap)
-    max_activation = np.max(heatmap)
-    high_activation_ratio = np.sum(heatmap > 0.6) / heatmap.size
-
     h = heatmap.shape[0]
-    upper_face = heatmap[:h // 2, :]
-    lower_face = heatmap[h // 2:, :]
-
-    upper_contribution = np.sum(upper_face) / total
-    lower_contribution = np.sum(lower_face) / total
-
-    red_ratio = np.sum(heatmap >= 0.66) / heatmap.size
-    yellow_ratio = np.sum((heatmap >= 0.33) & (heatmap < 0.66)) / heatmap.size
-    blue_ratio = np.sum(heatmap < 0.33) / heatmap.size
 
     return {
-        "Mean Activation": mean_activation,
-        "Max Activation": max_activation,
-        "High Activation Ratio (>0.6)": high_activation_ratio,
-        "Upper Face Contribution": upper_contribution,
-        "Lower Face Contribution": lower_contribution,
-        "Red Region Contribution (High Evidence)": red_ratio,
-        "Yellow Region Contribution (Moderate Evidence)": yellow_ratio,
-        "Blue Region Contribution (Low Evidence)": blue_ratio
+        "Mean Activation": np.mean(heatmap),
+        "Max Activation": np.max(heatmap),
+        "High Activation Ratio (>0.6)": np.sum(heatmap > 0.6) / heatmap.size,
+        "Upper Face Contribution": np.sum(heatmap[:h // 2, :]) / total,
+        "Lower Face Contribution": np.sum(heatmap[h // 2:, :]) / total,
+        "Red Region Contribution (High Evidence)": np.sum(heatmap >= 0.66) / heatmap.size,
+        "Yellow Region Contribution (Moderate Evidence)": np.sum((heatmap >= 0.33) & (heatmap < 0.66)) / heatmap.size,
+        "Blue Region Contribution (Low Evidence)": np.sum(heatmap < 0.33) / heatmap.size,
     }
 
 # -------------------------------------------------
@@ -121,7 +110,7 @@ def overlay_gradcam(image_bgr, heatmap, alpha=0.4):
 # -------------------------------------------------
 THRESHOLD = 0.7
 
-# IMPORTANT FIX: better MobileNetV2 layer
+# Best layer for MobileNetV2 Grad-CAM
 LAST_CONV_LAYER = "block_13_expand_relu"
 
 if IS_CLOUD:
@@ -157,14 +146,13 @@ if mode == "Upload Image":
             st.error(f"Prediction: Without Mask (Confidence: {no_mask_prob:.4f})")
             class_index = 0
 
-        # ---------- SAFE GRAD-CAM ----------
         try:
             heatmap = make_gradcam_heatmap(
                 processed, model, LAST_CONV_LAYER, class_index
             )
 
             if heatmap is None:
-                raise ValueError("Grad-CAM heatmap is empty")
+                raise ValueError("Grad-CAM failed")
 
             metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
@@ -184,8 +172,8 @@ if mode == "Upload Image":
 
         except Exception:
             st.warning(
-                "Grad-CAM explanation is unavailable for this prediction due to "
-                "gradient saturation. The prediction itself remains valid."
+                "Grad-CAM explanation could not be generated for this image. "
+                "The prediction remains valid."
             )
 
 # =================================================
@@ -221,7 +209,7 @@ elif mode == "Webcam Snapshot":
             )
 
             if heatmap is None:
-                raise ValueError("Grad-CAM heatmap is empty")
+                raise ValueError("Grad-CAM failed")
 
             metrics = gradcam_metrics(heatmap)
             cam_image = overlay_gradcam(image_bgr, heatmap)
@@ -241,8 +229,8 @@ elif mode == "Webcam Snapshot":
 
         except Exception:
             st.warning(
-                "Grad-CAM explanation is unavailable for this prediction due to "
-                "gradient saturation. The prediction itself remains valid."
+                "Grad-CAM explanation could not be generated for this image. "
+                "The prediction remains valid."
             )
 
 # =================================================
@@ -279,10 +267,8 @@ elif mode == "Live Video":
                 label = f"Without Mask ({no_mask_prob:.2f})"
                 color = (0, 0, 255)
 
-            cv2.putText(
-                frame, label, (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2
-            )
+            cv2.putText(frame, label, (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame_window.image(frame, use_container_width=True)
